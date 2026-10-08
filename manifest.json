@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Flow Prompt Queue (local)",
+  "version": "1.5.6",
+  "description": "Cola local de prompts y descarga secuencial de resultados de Google Flow.",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs",
+    "debugger",
+    "offscreen"
+  ],
+  "optional_host_permissions": [
+    "https://*.googleusercontent.com/*",
+    "https://*.googlevideo.com/*",
+    "https://storage.googleapis.com/*",
+    "https://flow-content.google/*"
+  ],
+  "host_permissions": [
+    "https://labs.google/*",
+    "https://flow.google/*",
+    "https://flow.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Abrir Flow Prompt Queue"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://labs.google/fx/tools/flow*",
+        "https://flow.google/*",
+        "https://flow.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

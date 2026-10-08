@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Flow Prompt Queue</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">EXTENSIÓN LOCAL</div>
+      <h1>Flow Prompt Queue</h1>
+      <p class="intro">Pega un bloque de prompts y la extensión los separará para añadirlos a la cola de Flow, en modo Imagen o Video.</p>
+    </header>
+
+    <section class="prompt-toolbar" aria-label="Controles de prompts y cola">
+      <button id="add" class="add-button" hidden>Añadir prompts a la cola</button>
+    <section class="controls">
+      <button id="start" class="primary">Iniciar cola</button>
+      <button id="pause" disabled>Pausar</button>
+      <button id="stop" class="danger" disabled>Detener</button>
+    </section>
+    </section>
+
+    <label for="prompts">Escribe o pega varios prompts</label>
+    <textarea id="prompts" spellcheck="false" placeholder="prompt 1: Stickman explorando una ciudad en las nubes…&#10;prompt 2: Stickman cruzando un bosque de cristales…&#10;prompt 3: Stickman frente a un volcán al atardecer…"></textarea>
+    <div class="hint">Usa encabezados como <code>prompt 1:</code>. También puedes separar prompts sin encabezados con una línea vacía.</div>
+
+    <section class="download-settings">
+      <label class="download-toggle"><input id="auto-download" type="checkbox"> Descargar automáticamente cada resultado</label>
+      <div class="download-fields">
+        <label for="download-prefix">Nombre base</label>
+        <input id="download-prefix" type="text" value="stick" maxlength="60" placeholder="stick">
+        <label>Carpeta de destino</label>
+        <div class="folder-picker-row"><button id="choose-folder" type="button">Elegir carpeta…</button><span id="selected-folder">Ninguna carpeta seleccionada</span></div>
+      </div>
+      <div class="hint">En la carpeta elegida se creará una subcarpeta con el nombre base. Ejemplo: FigCarpeta/Stick/stick1.png, stick2.png…</div>
+    </section>
+
+    <section id="draft-section" class="draft-section" hidden>
+      <div class="row queue-heading"><h2 id="draft-title">Vista previa</h2><button id="discard" class="text-button">Vaciar borrador</button></div>
+      <ol id="draft" class="queue draft"></ol>
+    </section>
+
+    <div id="status" class="status" role="status">Abre un proyecto de Flow y prepara el modo Imagen o Video antes de iniciar.</div>
+
+    <section class="queue-section">
+      <div class="row queue-heading"><h2 id="queue-title">Cola</h2><button id="clear" class="text-button">Limpiar cola</button></div>
+      <ol id="queue" class="queue"></ol>
+      <div id="empty" class="empty">La cola está vacía.</div>
+    </section>
+    <footer>La extensión guarda la cola en este navegador. Tú mantienes el control de tu sesión y de los créditos de Flow.</footer>
+  </main>
+  <script src="panel.js"></script>
+</body>
+</html>
