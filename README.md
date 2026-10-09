@@ -44,11 +44,11 @@ prompt3: A mysterious door opening beneath the city.
 
 ## How the queue works
 
-1. Waits for Flow to remain idle for five seconds before submitting a prompt.
+1. Waits only while Flow is busy or Generate is disabled; no fixed idle cooldown.
 2. Writes the prompt into the visible composer and clicks Generate through Chrome's debugger, with a DOM click fallback.
 3. Watches new Flow result cards rather than treating changes in image display size as new results. Media identity excludes temporary URL query parameters.
-4. Waits for a loaded image or playable video. Visible loading indicators and percentages, including 99%, prevent completion. The result must remain stable without a detected loading indicator for seven seconds.
-5. Accepts a single unambiguous result, optionally saves it, then waits another five seconds before continuing. Multiple detected outputs stop the queue for review; use x1.
+4. Waits for a loaded image or playable video. Visible loading indicators and percentages, including 99%, prevent completion. The result must remain stable without a detected loading indicator for 750 milliseconds.
+5. Accepts a single unambiguous result, optionally saves it, then immediately proceeds to the next prompt. Multiple detected outputs stop the queue for review; use x1.
 
 The generation timeout is 25 minutes. Detection depends on Flow's current page structure, so Google interface changes can require an extension update. Do not submit manual generations during a queue run: unrelated new cards can make result attribution ambiguous. The queue does not configure Flow's model, aspect ratio, or other generation settings.
 
@@ -86,7 +86,7 @@ SelectedFolder/
 
 The extension preserves the downloaded format rather than converting it. Existing filenames are skipped to avoid overwriting files. Numbering restarts when the base name or destination changes, while collisions are still avoided.
 
-Saving runs in the side panel, using its selected directory handle. Keep that panel open. Chrome may require choosing the folder again after a browser restart or extension reload. A saving failure stops the queue while leaving the generated result in Flow. When its output link has been retained, **Guardar imagen** retries the download; an expired link may require downloading directly from Flow.
+Saving runs in the side panel, using its selected directory handle. Keep that panel open. If Chrome expires permission, starting requests access to the saved folder; Autorizar carpeta also restores access without choosing it again. Only moved or deleted folders need reselection. Saving retries up to three times, reusing the downloaded data and destination; a successful retry continues the queue. Exhausted retries stop the queue while leaving the generated result in Flow. When its output link has been retained, **Guardar imagen** retries the download; an expired link may require downloading directly from Flow.
 
 ## Updating
 

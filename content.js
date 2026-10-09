@@ -57,12 +57,12 @@
     return { nodes: new Set(tiles()), labels: new Set(tiles().map(t => t.getAttribute("aria-label")).filter(Boolean)), assets: new Set(generatedMediaEntries().map(e => e.signature)) };
   }
   async function waitUntilIdle() {
-    let idleSince = 0;
+    
     const start = Date.now();
     while (Date.now() - start < 25 * 60 * 1000) {
       if (stopRequested) return false;
-      if (isBusy()) idleSince = 0;
-      else { idleSince ||= Date.now(); if (Date.now() - idleSince >= 5000) return true; }
+      const button = findGenerateButton();
+      if (!isBusy() && findComposer() && button && !button.disabled && button.getAttribute("aria-disabled") !== "true") return true;
       await sleep(500);
     }
     return false;
@@ -134,7 +134,7 @@
       if (isBusy() || !key) { stableSince = 0; stableKey = ""; }
       else {
         if (key !== stableKey) { stableKey = key; stableSince = Date.now(); }
-        if (Date.now() - stableSince >= 7000) {
+        if (Date.now() - stableSince >= 750) {
           // This queue deliberately accepts one result per prompt. Ambiguity stops it.
           if (outputs.length !== 1) return { outcome: "unconfirmed", outputs: [] };
           return { outcome: "done", outputs: outputs.map(e => ({ url: e.url, signature: e.signature, mime: e.element instanceof HTMLVideoElement ? "video/mp4" : "image/png" })) };
@@ -213,17 +213,27 @@
               if (downloadFailure) break;
               const outputRequest = {
                 type: "FLOW_WRITE_OUTPUT",
+                requestId: crypto.randomUUID(),
                 url: output.url,
                 mime: output.mime,
                 prefix: settings.prefix || "stick",
                 number
               };
-              const result = await chrome.runtime.sendMessage(outputRequest);
+              item.unsavedOutput = outputRequest;
+              await chrome.storage.local.set({ flowQueue: queue });
+              let result;
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try { result = await chrome.runtime.sendMessage(outputRequest); break; }
+                catch (error) {
+                  if (attempt === 3) result = { ok: false, error: error.message || String(error) };
+                  else await sleep(250 * attempt);
+                }
+              }
               if (!result?.ok) { item.unsavedOutput = outputRequest; downloadFailure = result?.error || "No pude descargar el resultado de Flow."; break; }
+              delete item.unsavedOutput;
               if (result.filename) savedFiles.push(result.filename);
               number = (Number(result.number) || number) + 1;
               await chrome.storage.local.set({ flowDownloadNextNumber: number });
-              await sleep(500);
             }
           }
         }
@@ -241,8 +251,7 @@
           : `Prompt ${queue.items.indexOf(item) + 1} de ${queue.items.length} completado.`;
         await chrome.storage.local.set({ flowQueue: queue });
         if (outcome !== "done" || downloadFailure) break;
-        await update({ message: "Resultado terminado. Esperando 5 segundos antes del siguiente prompt…" });
-        await sleep(5000);
+        // El guardado ya terminó: pasar al siguiente sin enfriamiento artificial.
       }
       if (stopRequested) await update({ running: false, paused: false, message: "Cola detenida. Los prompts pendientes se conservaron." });
     } catch (error) {

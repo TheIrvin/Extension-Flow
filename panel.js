@@ -149,7 +149,7 @@ async function getDirectoryHandle() {
   const db = await folderDb;
   return new Promise((resolve, reject) => {
     const request = db.transaction("handles").objectStore("handles").get("output-directory");
-    request.onsuccess = () => resolve(request.result || null);
+    request.onsuccess = () => { selectedDirectoryHandle = request.result || null; resolve(selectedDirectoryHandle); };
     request.onerror = () => reject(request.error);
   });
 }
@@ -158,6 +158,7 @@ async function refreshSelectedFolder() {
     const handle = await getDirectoryHandle();
     $("selected-folder").textContent = handle?.name || "Ninguna carpeta seleccionada";
     $("selected-folder").title = handle?.name || "";
+    $("authorize-folder").hidden = !handle || await handle.queryPermission({ mode: "readwrite" }) === "granted";
   } catch {
     $("selected-folder").textContent = "No se pudo recuperar la carpeta";
   }
@@ -171,7 +172,7 @@ $("choose-folder").addEventListener("click", async () => {
     if (permission !== "granted") permission = await handle.requestPermission({ mode: "readwrite" });
     if (permission !== "granted") throw new Error("Chrome no concedió permiso de escritura para esa carpeta.");
     const previousHandle = await getDirectoryHandle();
-    const sameFolder = previousHandle ? await previousHandle.isSameEntry(handle) : false;
+    const sameFolder = previousHandle ? await previousHandle.isSameEntry(handle).catch(() => false) : false;
     selectedDirectoryHandle = handle;
     await saveDirectoryHandle(handle);
     if (!sameFolder) await chrome.storage.local.set({ flowDownloadNextNumber: 1 });
@@ -187,6 +188,31 @@ $("choose-folder").addEventListener("click", async () => {
       render();
     }
   }
+});
+
+async function authorizeSelectedFolder() {
+  // El handle se recupera al abrir el panel; solicitar desde el clic conserva la activación del usuario.
+  const handle = selectedDirectoryHandle || await getDirectoryHandle();
+  if (!handle) throw new Error("Elige primero una carpeta de destino.");
+  if (await handle.requestPermission({ mode: "readwrite" }) !== "granted") {
+    throw new Error("No se autorizó la escritura. Pulsa Autorizar carpeta para conceder acceso a la carpeta guardada.");
+  }
+  try { await handle.resolve(handle); }
+  catch (error) {
+    if (error.name === "NotFoundError") throw new Error("La carpeta guardada fue movida o eliminada. Elige su nueva ubicación.");
+    throw error;
+  }
+  await saveDirectoryHandle(handle);
+  await refreshSelectedFolder();
+  return handle;
+}
+$("authorize-folder").addEventListener("click", async () => {
+  try {
+    await authorizeSelectedFolder();
+    state.message = "Carpeta autorizada. Puedes continuar sin seleccionarla otra vez.";
+    state.error = false;
+  } catch (error) { state.message = error.message; state.error = true; }
+  render();
 });
 
 $("auto-download").addEventListener("change", async () => {
@@ -212,6 +238,7 @@ elements.queue.addEventListener("click", async (event) => {
   if (!item || state.running) return;
   if (button.dataset.action === "save-output") {
     try {
+      await authorizeSelectedFolder();
       const result = await writeFlowOutput(item.unsavedOutput);
       delete item.unsavedOutput;
       await chrome.storage.local.set({ flowDownloadNextNumber: Number(result.number) + 1 });
@@ -236,18 +263,11 @@ elements.add.addEventListener("click", async () => {
 $("discard").addEventListener("click", () => { draftPrompts = []; elements.input.value = ""; render(); });
 $("start").addEventListener("click", async () => {
   if (!state.items.some((i) => i.status === "pending")) return;
-  const config = await chrome.storage.local.get("flowDownloadSettings");
-  if (config.flowDownloadSettings?.enabled) {
-    const handle = await getDirectoryHandle();
-    if (!handle) {
-      state.message = "El guardado automático está activo. Elige primero la carpeta de destino.";
-      state.error = true; render(); return;
-    }
-    const permission = await handle.queryPermission({ mode: "readwrite" });
-    if (permission !== "granted") {
-      state.message = "Chrome requiere permiso de escritura. Pulsa Elegir carpeta y selecciona la carpeta guardada otra vez.";
-      state.error = true; render(); return;
-    }
+  try {
+    // Leer el ajuste del control ya cargado, sin retrasar la solicitud de permiso del clic.
+    if ($("auto-download").checked) await authorizeSelectedFolder();
+  } catch (error) {
+    state.message = error.message; state.error = true; render(); return;
   }
   const reply = await chrome.runtime.sendMessage({ type: "FLOW_QUEUE_COMMAND", command: { type: "START_QUEUE" } });
   if (!reply?.ok) { state.message = reply?.error || "No se pudo iniciar la cola."; state.error = true; await save(); return; }
@@ -267,43 +287,74 @@ chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" &
 load();
 
 async function writeFlowOutput(message) {
-  const handle = await getDirectoryHandle();
-  if (!handle) throw new Error("Elige primero una carpeta de destino.");
-  if (await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
-    throw new Error("Chrome requiere permiso de escritura. Pulsa Elegir carpeta y selecciona la carpeta guardada otra vez.");
-  }
-
-  const url = String(message.url || "");
-  if (!/^https?:/i.test(url)) throw new Error("Flow no expuso un enlace descargable para este resultado.");
-  const response = await fetch(url, { credentials: "include" });
-  if (!response.ok) throw new Error(`Flow respondió ${response.status} al descargar el resultado.`);
-  const blob = await response.blob();
-  const mime = (blob.type || message.mime || "application/octet-stream").split(";")[0].toLowerCase();
-  const extension = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm" })[mime]
-    || url.split(/[?#]/)[0].match(/\.([a-z0-9]{1,8})$/i)?.[1]
-    || "bin";
-  const rawPrefix = String(message.prefix || "stick").trim() || "stick";
-  const prefix = rawPrefix.replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").slice(0, 60) || "stick";
-  const folderName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
-  const outputFolder = await handle.getDirectoryHandle(folderName, { create: true });
-  let number = Number(message.number) || 1;
-  let filename = `${prefix}${number}.${extension}`;
-  while (true) {
-    try {
-      await outputFolder.getFileHandle(filename);
-      number += 1;
-      filename = `${prefix}${number}.${extension}`;
-    } catch (error) {
-      if (error.name === "NotFoundError") break;
-      throw error;
+  const requestId = message.requestId ||= crypto.randomUUID();
+  return navigator.locks.request("flow-output-writer", async () => {
+    const stored = await chrome.storage.local.get("flowSavedOutputs");
+    const receipts = stored.flowSavedOutputs || {};
+    if (receipts[requestId]) return receipts[requestId];
+    let blob, outputFolder, file, filename, number, result;
+    const handle = await getDirectoryHandle();
+    if (!handle) throw new Error("Elige primero una carpeta de destino.");
+    const url = String(message.url || "");
+    if (!/^https?:/i.test(url)) throw new Error("Flow no expuso un enlace descargable para este resultado.");
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      let writable;
+      try {
+        if (await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
+          const error = new Error("Chrome requiere permiso de escritura. Pulsa Autorizar carpeta; no necesitas volver a seleccionarla.");
+          error.name = "NotAllowedError"; throw error;
+        }
+        if (!blob) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 60000);
+          try {
+            const response = await fetch(url, { credentials: "include", signal: controller.signal });
+            if (!response.ok) throw new Error(`Flow respondió ${response.status} al descargar el resultado.`);
+            blob = await response.blob();
+            if (!blob.size) { blob = null; throw new Error("Flow devolvió un archivo vacío."); }
+            if (!/^(image|video)\//i.test(blob.type || message.mime || "")) {
+              blob = null; throw new Error("Flow no devolvió una imagen o video válido.");
+            }
+          } finally { clearTimeout(timer); }
+        }
+        if (!result) {
+          const prefix = (String(message.prefix || "stick").trim().replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").slice(0, 60)) || "stick";
+          const folderName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+          outputFolder = await handle.getDirectoryHandle(folderName, { create: true });
+          const mime = (blob.type || message.mime).split(";")[0].toLowerCase();
+          const extension = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm" })[mime] || "bin";
+          number = Number(message.number) || 1;
+          while (true) {
+            filename = `${prefix}${number}.${extension}`;
+            try { await outputFolder.getFileHandle(filename); number++; }
+            catch (error) { if (error.name === "NotFoundError") break; throw error; }
+          }
+          result = { ok: true, filename: `${handle.name}/${folderName}/${filename}`, number };
+        }
+        // Conservar el mismo destino y blob entre intentos; no crear una imagen numerada extra.
+        file ||= await outputFolder.getFileHandle(filename, { create: true });
+        writable = await file.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        writable = null;
+        receipts[requestId] = result;
+        const recent = Object.fromEntries(Object.entries(receipts).slice(-200));
+        await chrome.storage.local.set({ flowSavedOutputs: recent });
+        return result;
+      } catch (error) {
+        if (writable) await writable.abort().catch(() => {});
+        if (error.name === "NotAllowedError" || error.name === "SecurityError" || attempt === 3) {
+          if (error.name === "NotAllowedError") $("authorize-folder").hidden = false;
+          throw new Error(`${error.message || error}${attempt === 3 ? " (3 intentos de guardado agotados)." : ""}`);
+        }
+        const status = await chrome.storage.local.get("flowQueue");
+        if (status.flowQueue?.running) {
+          await chrome.storage.local.set({ flowQueue: { ...status.flowQueue, message: `Guardado fallido. Reintentando ${attempt + 1}/3 sin volver a generar…` } });
+        }
+        await new Promise(resolve => setTimeout(resolve, 300 * attempt));
+      }
     }
-  }
-
-  const file = await outputFolder.getFileHandle(filename, { create: true });
-  const writable = await file.createWritable();
-  await writable.write(blob);
-  await writable.close();
-  return { ok: true, filename: `${handle.name}/${folderName}/${filename}`, number };
+  });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
