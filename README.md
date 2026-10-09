@@ -24,7 +24,7 @@ The extension interface currently uses Spanish labels. Their English equivalents
 5. Click the extension's toolbar icon to open its side panel.
 6. Paste your prompts, review the compact previews, and click **Añadir prompts a la cola** (Add prompts to queue).
 7. Optionally configure automatic saving as described below.
-8. Click **Iniciar cola** (Start queue). Keep the Flow tab and side panel open while processing.
+8. Click **Iniciar cola** (Start queue). Keep the Flow tab open while processing. You can switch tabs or close the side panel; saving runs in a hidden extension document. Keep Chrome running.
 
 Chrome displays a debugger notification while the extension uses browser-assisted clicks. Avoid opening DevTools on the same Flow tab during a queue run.
 
@@ -86,7 +86,7 @@ SelectedFolder/
 
 The extension preserves the downloaded format rather than converting it. Existing filenames are skipped to avoid overwriting files. Numbering restarts when the base name or destination changes, while collisions are still avoided.
 
-Saving runs in the side panel, using its selected directory handle. Keep that panel open. If Chrome expires permission, starting requests access to the saved folder; Autorizar carpeta also restores access without choosing it again. Only moved or deleted folders need reselection. Saving retries up to three times, reusing the downloaded data and destination; a successful retry continues the queue. Exhausted retries stop the queue while leaving the generated result in Flow. When its output link has been retained, **Guardar imagen** retries the download; an expired link may require downloading directly from Flow.
+Saving runs in an offscreen extension document, using the destination authorized in the side panel. Changing tabs or closing/reopening the panel does not stop file writing. Reopening the panel queries the live queue before marking anything interrupted. Destination access is checked before starting generation. Keep the Flow tab and Chrome open; closing the browser, reloading Flow or reloading the extension interrupts the queue. If Chrome expires permission, starting requests access to the saved folder; Autorizar carpeta also restores access without choosing it again. Only moved or deleted folders need reselection. Saving retries up to three times, reusing the downloaded data and destination; a successful retry continues the queue. Exhausted retries stop the queue while leaving the generated result in Flow. When its output link has been retained, **Guardar imagen** retries the download; an expired link may require downloading directly from Flow.
 
 ## Updating
 
@@ -107,15 +107,15 @@ The extension does not store account credentials or require a separate backend. 
 ## Project files
 
 - `manifest.json`: Chrome extension registration and permissions.
-- `panel.html`, `panel.css`, `panel.js`: side panel, queue previews, settings, and local file writing.
+- `panel.html`, `panel.css`, `panel.js`: side panel, queue previews, settings, and folder authorization.
 - `content.js`: composer interaction, generation detection, and sequential queue processing.
 - `background.js`: tab routing, debugger clicks, and download message validation.
-- `offscreen.html`, `offscreen.js`: legacy offscreen saving helper, retained but not used by the current saving path.
+- `offscreen.html`, `offscreen.js`: active background file writer, three-attempt retries, and IndexedDB save receipts/reservations to recover downloads without regenerating images.
 
 ## Troubleshooting
 
 - **Queue cannot connect:** reload both the extension and the Flow tab, then reopen the panel.
-- **Write permission error:** click Choose folder again and authorize the destination in the current panel session.
+- **Write permission error:** open the panel and click Autorizar carpeta. Choose a new folder only if the original moved or was deleted.
 - **Media permission error:** disable and re-enable automatic saving, then accept the media access request.
 - **Queue stops with an uncertain result:** inspect Flow, use x1, let existing generations finish, and avoid manual generation during processing.
 - **Unexpected duplicates:** stop processing and inspect the saved files and Flow results before retrying. Do not restart a completed prompt to recover only a failed download.

@@ -3,6 +3,29 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "FLOW_QUEUE_STATUS") {
+    void getLiveQueueStatus().then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "FLOW_PREPARE_OUTPUT" || message?.type === "FLOW_RETRY_SAVE") {
+    if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL("panel.html")) return;
+    const operation = message.type === "FLOW_PREPARE_OUTPUT"
+      ? prepareOutputDestination()
+      : saveOutputToSelectedFolder(message.output, sender, true);
+    void operation.then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message || String(error) }));
+    return true;
+  }
+  if (message?.type === "FLOW_SAVE_PROGRESS") {
+    if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL("offscreen.html")) return;
+    void (async () => {
+      const stored = await chrome.storage.local.get("flowQueue");
+      const queue = stored.flowQueue;
+      if (queue?.running && queue.items?.some(item => item.unsavedOutput?.requestId === message.requestId)) {
+        await chrome.storage.local.set({ flowQueue: { ...queue, message: message.message } });
+      }
+    })().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message?.type === "FLOW_REAL_CLICK") {
     void dispatchFlowClick(message, sender).then(sendResponse).catch((error) => {
       sendResponse({ ok: false, error: `Chrome no pudo hacer clic en Flow: ${error.message || error}` });
@@ -72,20 +95,36 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 chrome.tabs.onRemoved.addListener((tabId) => { void detachQueueDebugger(tabId); });
 
+let creatingOutputDocument;
 async function ensureOutputDocument() {
   const url = chrome.runtime.getURL("offscreen.html");
   const contexts = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [url] });
-  if (!contexts.length) {
-    await chrome.offscreen.createDocument({
-      url: "offscreen.html",
-      reasons: ["BLOBS"],
-      justification: "Guardar directamente los resultados de Flow en la carpeta elegida por el usuario."
-    });
+  if (contexts.length) return;
+  if (!creatingOutputDocument) {
+    creatingOutputDocument = chrome.offscreen.createDocument({
+      url: "offscreen.html", reasons: ["BLOBS"],
+      justification: "Descargar y escribir los archivos multimedia aunque el panel esté cerrado o la pestaña de Flow esté en segundo plano."
+    }).finally(() => { creatingOutputDocument = null; });
+  }
+  await creatingOutputDocument;
+}
+async function prepareOutputDestination() {
+  await ensureOutputDocument();
+  return chrome.runtime.sendMessage({ type: "CHECK_FLOW_DESTINATION_INTERNAL", target: "flow-file-writer" });
+}
+async function getLiveQueueStatus() {
+  const tabId = await getQueueDebuggerTabId();
+  if (tabId == null) return { ok: true, active: false };
+  try {
+    const status = await chrome.tabs.sendMessage(tabId, { type: "GET_QUEUE_STATUS" });
+    return status || { ok: false };
+  } catch {
+    return { ok: true, active: false };
   }
 }
 
-async function saveOutputToSelectedFolder(message, sender) {
-  if (!sender.tab?.id || !isFlowUrl(sender.tab.url)) throw new Error("Solo guardo resultados enviados desde una pestaña de Flow.");
+async function saveOutputToSelectedFolder(message, sender, fromPanel = false) {
+  if (!fromPanel && (!sender.tab?.id || !isFlowUrl(sender.tab.url))) throw new Error("Solo guardo resultados enviados desde una pestaña de Flow.");
   const url = String(message.url || "");
   let host = "";
   try { host = new URL(url).hostname; } catch {}
@@ -94,8 +133,9 @@ async function saveOutputToSelectedFolder(message, sender) {
   const origins = ["https://flow-content.google/*", "https://*.googleusercontent.com/*", "https://*.googlevideo.com/*", "https://storage.googleapis.com/*"];
   const grantedOrigins = await chrome.permissions.contains({ origins });
   if (!grantedOrigins) throw new Error("Activa el permiso opcional para los servidores multimedia de Google en la casilla de descarga automática.");
-  const result = await chrome.runtime.sendMessage({ type: "WRITE_FLOW_OUTPUT_PANEL", output: message });
-  if (!result?.ok) throw new Error(result?.error || "Mantén abierto el panel de la extensión para guardar resultados.");
+  await ensureOutputDocument();
+  const result = await chrome.runtime.sendMessage({ type: "WRITE_FLOW_OUTPUT_INTERNAL", target: "flow-file-writer", output: message });
+  if (!result?.ok) throw new Error(result?.error || "No se pudo guardar el resultado en segundo plano.");
   return result;
 }
 

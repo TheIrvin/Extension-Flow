@@ -274,7 +274,8 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "START_QUEUE") { if (!active) void runQueue(); sendResponse({ ok: true }); }
+    if (message?.type === "GET_QUEUE_STATUS") { sendResponse({ ok: true, active, paused }); }
+    else if (message?.type === "START_QUEUE") { if (!active) void runQueue(); sendResponse({ ok: true }); }
     else if (message?.type === "PAUSE_QUEUE") { paused = true; sendResponse({ ok: true }); }
     else if (message?.type === "RESUME_QUEUE") { paused = false; sendResponse({ ok: true }); }
     else if (message?.type === "STOP_QUEUE") { stopRequested = true; paused = false; sendResponse({ ok: true }); }

@@ -108,7 +108,13 @@ async function load() {
     if (interrupted) interrupted.status = "pending";
     state.message = "El prompt que Flow no reconoció quedó pendiente. Recarga Flow y vuelve a iniciar la cola.";
   }
-  if (state.running) {
+  const live = await chrome.runtime.sendMessage({ type: "FLOW_QUEUE_STATUS" }).catch(() => null);
+  // Recargar el panel no significa que la cola de la pestaña se haya detenido.
+  const latest = await chrome.storage.local.get("flowQueue");
+  if (latest.flowQueue) state = { ...state, ...latest.flowQueue };
+  if (live?.active) {
+    state.running = true; state.paused = Boolean(live.paused);
+  } else if (live?.ok && state.running) {
     state.running = false;
     state.paused = false;
     state.items = state.items.map((item) => item.status === "running" ? { ...item, status: "review" } : item);
@@ -269,6 +275,10 @@ $("start").addEventListener("click", async () => {
   } catch (error) {
     state.message = error.message; state.error = true; render(); return;
   }
+  if ($("auto-download").checked) {
+    const prepared = await chrome.runtime.sendMessage({ type: "FLOW_PREPARE_OUTPUT" }).catch(error => ({ ok: false, error: error.message }));
+    if (!prepared?.ok) { state.message = prepared?.error || "No se pudo preparar el guardado en segundo plano."; state.error = true; render(); return; }
+  }
   const reply = await chrome.runtime.sendMessage({ type: "FLOW_QUEUE_COMMAND", command: { type: "START_QUEUE" } });
   if (!reply?.ok) { state.message = reply?.error || "No se pudo iniciar la cola."; state.error = true; await save(); return; }
   state.running = true; state.paused = false; state.error = false; state.message = "Conectando con Flow…"; await save();
@@ -287,80 +297,8 @@ chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" &
 load();
 
 async function writeFlowOutput(message) {
-  const requestId = message.requestId ||= crypto.randomUUID();
-  return navigator.locks.request("flow-output-writer", async () => {
-    const stored = await chrome.storage.local.get("flowSavedOutputs");
-    const receipts = stored.flowSavedOutputs || {};
-    if (receipts[requestId]) return receipts[requestId];
-    let blob, outputFolder, file, filename, number, result;
-    const handle = await getDirectoryHandle();
-    if (!handle) throw new Error("Elige primero una carpeta de destino.");
-    const url = String(message.url || "");
-    if (!/^https?:/i.test(url)) throw new Error("Flow no expuso un enlace descargable para este resultado.");
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      let writable;
-      try {
-        if (await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
-          const error = new Error("Chrome requiere permiso de escritura. Pulsa Autorizar carpeta; no necesitas volver a seleccionarla.");
-          error.name = "NotAllowedError"; throw error;
-        }
-        if (!blob) {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 60000);
-          try {
-            const response = await fetch(url, { credentials: "include", signal: controller.signal });
-            if (!response.ok) throw new Error(`Flow respondió ${response.status} al descargar el resultado.`);
-            blob = await response.blob();
-            if (!blob.size) { blob = null; throw new Error("Flow devolvió un archivo vacío."); }
-            if (!/^(image|video)\//i.test(blob.type || message.mime || "")) {
-              blob = null; throw new Error("Flow no devolvió una imagen o video válido.");
-            }
-          } finally { clearTimeout(timer); }
-        }
-        if (!result) {
-          const prefix = (String(message.prefix || "stick").trim().replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").slice(0, 60)) || "stick";
-          const folderName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
-          outputFolder = await handle.getDirectoryHandle(folderName, { create: true });
-          const mime = (blob.type || message.mime).split(";")[0].toLowerCase();
-          const extension = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm" })[mime] || "bin";
-          number = Number(message.number) || 1;
-          while (true) {
-            filename = `${prefix}${number}.${extension}`;
-            try { await outputFolder.getFileHandle(filename); number++; }
-            catch (error) { if (error.name === "NotFoundError") break; throw error; }
-          }
-          result = { ok: true, filename: `${handle.name}/${folderName}/${filename}`, number };
-        }
-        // Conservar el mismo destino y blob entre intentos; no crear una imagen numerada extra.
-        file ||= await outputFolder.getFileHandle(filename, { create: true });
-        writable = await file.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        writable = null;
-        receipts[requestId] = result;
-        const recent = Object.fromEntries(Object.entries(receipts).slice(-200));
-        await chrome.storage.local.set({ flowSavedOutputs: recent });
-        return result;
-      } catch (error) {
-        if (writable) await writable.abort().catch(() => {});
-        if (error.name === "NotAllowedError" || error.name === "SecurityError" || attempt === 3) {
-          if (error.name === "NotAllowedError") $("authorize-folder").hidden = false;
-          throw new Error(`${error.message || error}${attempt === 3 ? " (3 intentos de guardado agotados)." : ""}`);
-        }
-        const status = await chrome.storage.local.get("flowQueue");
-        if (status.flowQueue?.running) {
-          await chrome.storage.local.set({ flowQueue: { ...status.flowQueue, message: `Guardado fallido. Reintentando ${attempt + 1}/3 sin volver a generar…` } });
-        }
-        await new Promise(resolve => setTimeout(resolve, 300 * attempt));
-      }
-    }
-  });
+  message.requestId ||= crypto.randomUUID();
+  const result = await chrome.runtime.sendMessage({ type: "FLOW_RETRY_SAVE", output: message });
+  if (!result?.ok) throw new Error(result?.error || "No se pudo guardar el resultado en segundo plano.");
+  return result;
 }
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "WRITE_FLOW_OUTPUT_PANEL" || sender.id !== chrome.runtime.id || sender.tab) return;
-  void writeFlowOutput(message.output).then(sendResponse).catch((error) => {
-    sendResponse({ ok: false, error: error.message || String(error) });
-  });
-  return true;
-});
