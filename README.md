@@ -44,8 +44,8 @@ prompt3: A mysterious door opening beneath the city.
 
 ## How the queue works
 
-1. Waits only while Flow is busy or Generate is disabled; no fixed idle cooldown.
-2. Writes the prompt into the visible composer and clicks Generate through Chrome's debugger, with a DOM click fallback.
+1. Waits only while Flow is generating; an empty composer with a disabled Generate button does not block prompt entry. No fixed idle cooldown.
+2. Writes the prompt into the visible composer, waits up to 10 seconds for Generate to become enabled, and clicks it through Chrome's debugger, with a DOM click fallback. If it stays disabled, the prompt remains pending with an explanatory message.
 3. Watches new Flow result cards rather than treating changes in image display size as new results. Media identity excludes temporary URL query parameters.
 4. Waits for a loaded image or playable video. Visible loading indicators and percentages, including 99%, prevent completion. The result must remain stable without a detected loading indicator for 750 milliseconds.
 5. Accepts a single unambiguous result, optionally saves it, then immediately proceeds to the next prompt. Multiple detected outputs stop the queue for review; use x1.

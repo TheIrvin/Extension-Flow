@@ -61,11 +61,21 @@
     const start = Date.now();
     while (Date.now() - start < 25 * 60 * 1000) {
       if (stopRequested) return false;
-      const button = findGenerateButton();
-      if (!isBusy() && findComposer() && button && !button.disabled && button.getAttribute("aria-disabled") !== "true") return true;
+      // El botón puede estar deshabilitado porque todavía no hemos escrito el prompt.
+      if (!isBusy()) return true;
       await sleep(500);
     }
-    return false;
+    throw new Error("Flow sigue ocupado después de 25 minutos. No se envió el siguiente prompt; revisa la pestaña y vuelve a iniciar.");
+  }
+  async function waitForEnabledGenerate() {
+    const start = Date.now();
+    while (Date.now() - start < 10000) {
+      if (stopRequested) return null;
+      const button = findGenerateButton();
+      if (button && !button.disabled && button.getAttribute("aria-disabled") !== "true") return button;
+      await sleep(150);
+    }
+    return null;
   }
   async function update(patch) {
     const stored = await chrome.storage.local.get("flowQueue");
@@ -174,17 +184,18 @@
         queue.error = false;
         await chrome.storage.local.set({ flowQueue: queue });
         try {
-          fillComposer(composer, item.prompt);
+          fillComposer(findComposer() || composer, item.prompt);
         } catch (error) {
           item.status = "pending"; queue.running = false; queue.error = true;
           queue.message = `No pude escribir en el cuadro de Flow: ${error.message || error}. El prompt quedó pendiente.`;
           await chrome.storage.local.set({ flowQueue: queue }); break;
         }
-        await sleep(500);
-        const currentButton = findGenerateButton();
-        if (!currentButton || currentButton.disabled) {
+        const currentButton = await waitForEnabledGenerate();
+        if (!currentButton) {
           item.status = "pending"; queue.running = false; queue.error = true;
-          queue.message = "Flow no habilitó Generar. Revisa el prompt, el modo Imagen y los créditos; la cola quedó pausada.";
+          queue.message = stopRequested
+            ? "Cola detenida antes del envío. El prompt quedó pendiente."
+            : "Flow no habilitó Generar en 10 segundos después de escribir. Revisa modo Imagen, créditos o avisos de Flow. El prompt quedó pendiente.";
           await chrome.storage.local.set({ flowQueue: queue }); break;
         }
         await update({ message: `Preparando ${queue.items.indexOf(item) + 1} de ${queue.items.length}. Si Flow no inicia, pulsa su flecha de generación.` });
