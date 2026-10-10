@@ -166,7 +166,16 @@ async function handleQueueCommand(message, sender) {
   }
 
   const starting = message.command?.type === "START_QUEUE";
-  if (starting) await attachQueueDebugger(tab.id);
+  if (starting) {
+    await attachQueueDebugger(tab.id);
+    try {
+      const settings = await chrome.storage.local.get("flowDownloadSettings");
+      if (settings.flowDownloadSettings?.dedicatedWindow !== false) await prepareDedicatedWindow(tab);
+    } catch (error) {
+      await detachQueueDebugger(tab.id);
+      throw error;
+    }
+  }
   const response = await new Promise((resolve) => {
     chrome.tabs.sendMessage(tab.id, message.command, (result) => {
       if (chrome.runtime.lastError) resolve({ ok: false, error: "No pude conectar con Flow. Recarga la pestaña y vuelve a intentarlo." });
@@ -175,6 +184,17 @@ async function handleQueueCommand(message, sender) {
   });
   if (starting && !response.ok) await detachQueueDebugger(tab.id);
   return response;
+}
+
+async function prepareDedicatedWindow(tab) {
+  // Move the existing document: never reload it or create a second generation.
+  // An active tab in an unfocused window differs from a hidden background tab.
+  const current = await chrome.windows.get(tab.windowId, { populate: true });
+  if (current.tabs?.length === 1 && current.tabs[0].id === tab.id) {
+    if (current.state === "minimized") await chrome.windows.update(current.id, { state: "normal", focused: false });
+    return;
+  }
+  await chrome.windows.create({ tabId: tab.id, type: "normal", focused: false, width: 1100, height: 850 });
 }
 
 async function dispatchFlowClick(message, sender) {

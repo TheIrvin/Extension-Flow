@@ -47,7 +47,7 @@ prompt3: A mysterious door opening beneath the city.
 1. Waits only while Flow is generating; an empty composer with a disabled Generate button does not block prompt entry. No fixed idle cooldown.
 2. Writes the prompt into the visible composer, waits up to 10 seconds for Generate to become enabled, and clicks it through Chrome's debugger, with a DOM click fallback. If it stays disabled, the prompt remains pending with an explanatory message.
 3. Watches new Flow result cards rather than treating changes in image display size as new results. Media identity excludes temporary URL query parameters.
-4. Waits for a loaded image or playable video. Visible loading indicators and percentages, including 99%, prevent completion. The result must remain stable without a detected loading indicator for 750 milliseconds.
+4. Waits for a new downloadable Google media URL; lazy preview decoding is not required. Visible loading indicators and percentages, including 99%, prevent completion. The result must remain stable without a detected loading indicator for 750 milliseconds.
 5. Accepts a single unambiguous result, optionally saves it, then immediately proceeds to the next prompt. Multiple detected outputs stop the queue for review; use x1.
 
 The generation timeout is 25 minutes. Detection depends on Flow's current page structure, so Google interface changes can require an extension update. Do not submit manual generations during a queue run: unrelated new cards can make result attribution ambiguous. The queue does not configure Flow's model, aspect ratio, or other generation settings.
@@ -114,7 +114,15 @@ The extension does not store account credentials or require a separate backend. 
 
 ## Troubleshooting
 
-Version 1.5.11 keeps Flow's document active with Chrome's focus emulation while a queue runs, without activating its tab. It also detects a new downloadable Google asset before its lazy thumbnail finishes decoding. The existing checks still require a unique new result and no generation progress indicator before saving. Focus emulation is disabled when the queue finishes or stops; detaching also releases it. Reload the extension and Flow once after updating; future runs can continue while watching YouTube or using another tab.
+Version 1.5.12 adds an enabled-by-default **dedicated window** option. Starting the queue moves the existing Flow tab to its own unfocused normal window, unless it is already the only tab in a window. It does not navigate, duplicate the project, or submit another generation. Use other tabs in another window. The Flow window remains open after completion. Disable the option to keep the previous behavior. No additional permissions are required.
+
+Focus emulation remains enabled during a queue, but it is not a guarantee that Chrome will paint a hidden or occluded page. Keep the dedicated window unminimized; if covering it still produces grey previews, leave part of it visible beside your working window. Fully hidden/minimized operation is not verified. Closing Chrome or putting the computer to sleep stops execution.
+
+Saving still downloads the new Google asset directly in the offscreen document, without waiting for lazy thumbnail decoding. Unique-result and progress checks remain in place. Reload the extension and Flow once after updating, with no generation running.
+
+Validation: three automated simulations cover window separation without requesting focus, restoring a minimized single-tab window, focus emulation teardown, and two sequential saves with undecoded previews. These tests do not run the real Flow website. Check two prompts while using another window, then verify that both saved files open correctly before running a large queue.
+
+References: [Chrome focus emulation](https://developer.chrome.com/docs/devtools/rendering/apply-effects/), [background timer throttling](https://developer.chrome.com/blog/timer-throttling-in-chrome-88/), and [creating an unfocused window with an existing tab](https://developer.chrome.com/docs/extensions/reference/api/windows).
 
 - **Queue cannot connect:** reload both the extension and the Flow tab, then reopen the panel.
 - **Write permission error:** open the panel and click Autorizar carpeta. Choose a new folder only if the original moved or was deleted.
@@ -126,3 +134,7 @@ Version 1.5.11 keeps Flow's document active with Chrome's focus emulation while 
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+### Version 1.5.13
+
+Queue cleanup now handles both synchronous Chrome API errors and rejected promises after an extension reload invalidates an existing Flow page. The dedicated window stays unfocused and background focus emulation is restored after the queue. After updating the extension, reload an already-open Flow page before starting a new queue.

@@ -102,6 +102,7 @@ async function load() {
   const saved = await chrome.storage.local.get(["flowQueue", "flowDownloadSettings"]);
   if (saved.flowQueue) state = { ...state, ...saved.flowQueue };
   const downloadSettings = saved.flowDownloadSettings || {};
+  $("dedicated-window").checked = downloadSettings.dedicatedWindow !== false;
   $("auto-download").checked = Boolean(downloadSettings.enabled);
   $("download-prefix").value = downloadSettings.prefix || "stick";
   if (downloadSettings.enabled) {
@@ -136,6 +137,7 @@ async function save() { await chrome.storage.local.set({ flowQueue: state }); re
 async function saveDownloadSettings() {
   const current = await chrome.storage.local.get(["flowDownloadSettings", "flowDownloadNextNumber"]);
   const nextSettings = {
+    dedicatedWindow: $("dedicated-window").checked,
     enabled: $("auto-download").checked,
     prefix: $("download-prefix").value.trim() || "stick"
   };
@@ -245,6 +247,7 @@ $("auto-download").addEventListener("change", async () => {
   await saveDownloadSettings();
 });
 $("download-prefix").addEventListener("change", saveDownloadSettings);
+$("dedicated-window").addEventListener("change", saveDownloadSettings);
 elements.input.addEventListener("input", () => { draftPrompts = parsePrompts(elements.input.value); render(); });
 elements.queue.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");

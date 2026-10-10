@@ -273,10 +273,17 @@
       }
       if (stopRequested) await update({ running: false, paused: false, message: "Cola detenida. Los prompts pendientes se conservaron." });
     } catch (error) {
-      await update({ running: false, paused: false, error: true, message: `Error en la cola: ${error.message || error}` });
+      // Reloading an extension invalidates this document's Chrome APIs. Even
+      // reporting the original error can then throw synchronously or reject.
+      try {
+        await update({ running: false, paused: false, error: true, message: `Error en la cola: ${error.message || error}` });
+      } catch (reportError) {
+        console.warn("Flow Prompt Queue: conexión perdida. Recarga Flow antes de continuar.", reportError.message || reportError);
+      }
     } finally {
       active = false; paused = false;
-      chrome.runtime.sendMessage({ type: "FLOW_QUEUE_FINISH" }).catch(() => {});
+      // .catch() alone cannot catch a synchronous 'Extension context invalidated'.
+      try { await chrome.runtime.sendMessage({ type: "FLOW_QUEUE_FINISH" }); } catch {}
     }
   }
 

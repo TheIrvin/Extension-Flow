@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Flow Prompt Queue (local)",
-  "version": "1.5.11",
+  "version": "1.5.13",
   "description": "Cola local de prompts y descarga secuencial de resultados de Google Flow.",
   "permissions": [
     "storage",
