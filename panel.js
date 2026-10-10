@@ -65,6 +65,15 @@ function render() {
     const prompt = promptPreview(item.prompt);
     const status = document.createElement("span"); status.className = "state"; status.textContent = ({ pending: "Pendiente", running: "Generando", done: "Listo", error: "Revisar", review: "Revisar" })[item.status] || "Pendiente";
     li.append(number, prompt, status);
+    if (item.status === "done") {
+      const undo = document.createElement("button");
+      undo.className = "item-action"; undo.dataset.action = "mark-pending";
+      undo.dataset.id = item.id; undo.textContent = "Cancelar entrega";
+      undo.title = "Quitar el estado Listo y devolver este prompt a Pendiente. Los archivos guardados se conservan.";
+      undo.disabled = state.running;
+      if (state.running) undo.title = "Detén la cola antes de devolver este prompt a Pendiente.";
+      li.append(undo);
+    }
     if (item.status === "review" || item.status === "error") {
       const actions = document.createElement("div"); actions.className = "item-actions";
       const done = document.createElement("button"); done.className = "item-action"; done.dataset.action = "mark-done"; done.dataset.id = item.id; done.textContent = "Marcar listo";
@@ -253,7 +262,8 @@ elements.queue.addEventListener("click", async (event) => {
     await save(); return;
   }
   if (button.dataset.action === "mark-done") item.status = "done";
-  else if (button.dataset.action === "retry") item.status = "pending";
+  else if (button.dataset.action === "retry" || button.dataset.action === "mark-pending") item.status = "pending";
+  else return;
   state.message = button.dataset.action === "mark-done" ? "Prompt marcado como generado." : "Prompt devuelto a pendientes.";
   state.error = false;
   await save();

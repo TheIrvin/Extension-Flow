@@ -98,7 +98,7 @@ Pull the latest changes, or replace your extracted copy with the latest download
 - **sidePanel:** displays the queue controls.
 - **tabs:** identifies the Flow tab associated with queue commands.
 - **debugger:** sends browser-level clicks to Flow; the connection is released when the run finishes, stops, or the tab reloads/closes.
-- **offscreen:** retained for the legacy file-saving helper; the current saving path uses the side panel.
+- **offscreen:** writes media files independently of the side panel and Flow tab.
 - **Flow host access:** runs the content script on supported Flow pages.
 - **Optional media host access:** downloads generated files from `flow-content.google`, Google user-content/video hosts, and Google Cloud Storage.
 
@@ -113,6 +113,8 @@ The extension does not store account credentials or require a separate backend. 
 - `offscreen.html`, `offscreen.js`: active background file writer, three-attempt retries, and IndexedDB save receipts/reservations to recover downloads without regenerating images.
 
 ## Troubleshooting
+
+Version 1.5.11 keeps Flow's document active with Chrome's focus emulation while a queue runs, without activating its tab. It also detects a new downloadable Google asset before its lazy thumbnail finishes decoding. The existing checks still require a unique new result and no generation progress indicator before saving. Focus emulation is disabled when the queue finishes or stops; detaching also releases it. Reload the extension and Flow once after updating; future runs can continue while watching YouTube or using another tab.
 
 - **Queue cannot connect:** reload both the extension and the Flow tab, then reopen the panel.
 - **Write permission error:** open the panel and click Autorizar carpeta. Choose a new folder only if the original moved or was deleted.

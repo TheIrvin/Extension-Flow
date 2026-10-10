@@ -68,18 +68,32 @@ async function attachQueueDebugger(tabId) {
   }
   const targets = await chrome.debugger.getTargets();
   const attachedTarget = targets.find((target) => target.tabId === tabId);
-  if (await getQueueDebuggerTabId() === tabId && attachedTarget?.attached) return;
+  if (await getQueueDebuggerTabId() === tabId && attachedTarget?.attached) {
+    await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true });
+    return;
+  }
   if (await getQueueDebuggerTabId() === tabId) await chrome.storage.session.remove(SESSION_TAB_KEY);
   if (attachedTarget?.attached) {
     throw new Error("Flow ya tiene otra sesión de depuración conectada. Cierra DevTools de esa pestaña y vuelve a iniciar la cola.");
   }
   await chrome.debugger.attach({ tabId }, "1.3");
-  await chrome.storage.session.set({ [SESSION_TAB_KEY]: tabId });
+  try {
+    // Flow pauses visibility-dependent updates in an inactive tab. Emulate an
+    // active document without selecting its tab or interrupting the user's tab.
+    await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true });
+    await chrome.storage.session.set({ [SESSION_TAB_KEY]: tabId });
+  } catch (error) {
+    await chrome.debugger.detach({ tabId }).catch(() => {});
+    throw new Error(`No pude mantener Flow activo en segundo plano: ${error.message || error}`);
+  }
 }
 
 async function detachQueueDebugger(tabId) {
   const attachedTabId = await getQueueDebuggerTabId();
   if (attachedTabId == null || (tabId != null && attachedTabId !== tabId)) return;
+  try {
+    await chrome.debugger.sendCommand({ tabId: attachedTabId }, "Emulation.setFocusEmulationEnabled", { enabled: false });
+  } catch {}
   try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch {}
   await chrome.storage.session.remove(SESSION_TAB_KEY);
 }

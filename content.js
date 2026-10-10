@@ -39,12 +39,19 @@
     const result = [];
     const seen = new Set();
     for (const media of root.querySelectorAll("img,video")) {
-      const url = media.currentSrc || media.src;
+      // A lazy thumbnail need not have decoded yet for its Google asset URL to
+      // be downloadable. Do not gate saving on naturalWidth/video.readyState.
+      const url = media.currentSrc || media.getAttribute("src") || media.querySelector("source[src]")?.src;
       const tile = media.closest(tileSelector);
       if (!tile || !url) continue;
-      const ready = media instanceof HTMLImageElement
+      let downloadable = false;
+      try {
+        const parsed = new URL(url);
+        downloadable = parsed.protocol === "https:" && (parsed.hostname === "flow-content.google" || parsed.hostname.endsWith(".googleusercontent.com") || parsed.hostname.endsWith(".googlevideo.com") || parsed.hostname === "storage.googleapis.com");
+      } catch {}
+      const ready = downloadable || (media instanceof HTMLImageElement
         ? media.complete && media.naturalWidth > 100 && media.naturalHeight > 100
-        : media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && media.videoWidth > 100 && media.videoHeight > 100;
+        : media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && media.videoWidth > 100 && media.videoHeight > 100);
       const signature = assetKey(url);
       if (ready && !seen.has(signature)) {
         seen.add(signature);
